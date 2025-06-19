@@ -35,6 +35,7 @@ contract MultiSigEOAWallet {
     struct Tx {
         address to;
         uint value;
+        bytes data; // Optional data for the transaction
         bool executed;
         uint confirmations;
         bool revoked;
@@ -227,8 +228,8 @@ contract MultiSigEOAWallet {
      * @param value The amount of Ether to send
      * @dev Only trusted addresses can submit transactions
      */
-    function submit(address to, uint value) external onlyTrusted {
-        transactions.push(Tx(to, value, false, 0, false, 0));
+    function submit(address to, uint value, bytes memory data) external onlyTrusted {
+        transactions.push(Tx(to, value, data, false, 0, false, 0));
     }
 
     /**
@@ -287,7 +288,7 @@ contract MultiSigEOAWallet {
         );
 
         transaction.executed = true;
-        (bool ok, ) = transaction.to.call{value: transaction.value}("");
+        (bool ok, ) = transaction.to.call{value: transaction.value}(transaction.data);
         require(ok, "Failed");
     }
 
