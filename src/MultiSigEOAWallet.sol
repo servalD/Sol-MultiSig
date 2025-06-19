@@ -90,6 +90,12 @@ contract MultiSigEOAWallet {
     /// @param balance The new balance of the wallet after the deposit
     event Deposit(address indexed sender, uint amount, uint balance);
 
+    /// @notice Emitted when a transaction is executed
+    /// @param txIndex The index of the executed transaction
+    /// @param to The destination address of the transaction
+    /// @param value The amount of Ether sent in the transaction
+    event TransactionExecuted(uint indexed txIndex, address indexed to, uint value);
+
     /// @dev Thrown when there are not enough owners
     error NotEnoughOwners();
 
@@ -101,9 +107,6 @@ contract MultiSigEOAWallet {
 
     /// @dev Thrown when referencing a non-existent transaction
     error TransactionNotFound();
-
-    /// @dev Thrown when an address is not an EOA
-    error NotEOA();
 
     /// @dev Thrown when an address is not trusted
     error NotTrusted();
@@ -272,7 +275,7 @@ contract MultiSigEOAWallet {
     /**
      * @notice Revoke a transaction
      * @param txIndex The index of the transaction to revoke
-     * @dev Requires quorumSize / 2 revocations to revoke a transaction
+     * @dev Requires (quorumSize / 2) + 1 revocations to revoke a transaction
      */
     function revokeTransaction(uint txIndex) external onlyTrusted {
         require(txIndex < transactions.length, TransactionNotFound());
@@ -286,7 +289,7 @@ contract MultiSigEOAWallet {
         revoked[txIndex][msg.sender] = true;
         transactions[txIndex].revocations++;
 
-        if (int(transactions[txIndex].revocations) >= quorumSize / 2) {
+        if (int(transactions[txIndex].revocations) >= (quorumSize / 2) + 1) {
             transactions[txIndex].revoked = true;
             emit TransactionRevoked(txIndex, msg.sender);
         }
@@ -309,6 +312,8 @@ contract MultiSigEOAWallet {
             transaction.data
         );
         require(ok, TransactionExecutionFailed());
+
+        emit TransactionExecuted(txIndex, transaction.to, transaction.value);
     }
 
     /**
@@ -318,7 +323,6 @@ contract MultiSigEOAWallet {
      */
     function addOwner(address newOwner, address[] memory trustedBy) internal {
         require(newOwner != address(0), InvalidAddress());
-        require(isEOA(newOwner), NotEOA());
         require(!isOwner(newOwner), AlreadyOwner());
 
         owners[ownerCount] = Owner(
@@ -327,15 +331,6 @@ contract MultiSigEOAWallet {
             int(trustedBy.length) >= quorumSize
         );
         ownerCount++;
-    }
-
-    /**
-     * @dev Check if an address is an EOA (Externally Owned Account)
-     * @param account The address to check
-     * @return bool True if the address is an EOA
-     */
-    function isEOA(address account) internal view returns (bool) {
-        return account.code.length == 0;
     }
 
     /**
