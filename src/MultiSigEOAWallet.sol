@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.25;
+pragma solidity ^0.8.30;
 
 /**
  * @title MultiSigEOAWallet
@@ -126,6 +126,18 @@ contract MultiSigEOAWallet {
     /// @dev Thrown when removing support would result in insufficient trusted owners
     error InsufficientTrustedOwners();
 
+    /// @dev Thrown when an owner has already confirmed a transaction
+    error AlreadyConfirmed();
+
+    /// @dev Thrown when an owner has already revoked a transaction
+    error AlreadyRevoked();
+
+    /// @dev Thrown when an owner is not supported by the caller
+    error NotSupportedByOwner();
+
+    /// @dev Thrown when transaction execution fails
+    error TransactionExecutionFailed();
+
     /// @notice Modifier to restrict access to owners only
     modifier onlyOwner() {
         require(isOwner(msg.sender), NotOwner());
@@ -194,7 +206,7 @@ contract MultiSigEOAWallet {
     function unSupportOwner(address ownerToUnSupport) external onlyTrusted {
         uint i = ownerIndex(ownerToUnSupport); // Check if the owner exists
         bool found = popArrayElement(owners[i].trustedBy, msg.sender);
-        require(found, "Not supported by this owner");
+        require(found, NotSupportedByOwner());
 
         // Check if this owner will become untrusted after removing support
         bool willBecomeUntrusted = (trustValue(i) == -1);
@@ -228,7 +240,11 @@ contract MultiSigEOAWallet {
      * @param value The amount of Ether to send
      * @dev Only trusted addresses can submit transactions
      */
-    function submit(address to, uint value, bytes memory data) external onlyTrusted {
+    function submit(
+        address to,
+        uint value,
+        bytes memory data
+    ) external onlyTrusted {
         transactions.push(Tx(to, value, data, false, 0, false, 0));
     }
 
@@ -243,7 +259,8 @@ contract MultiSigEOAWallet {
             !transactions[txIndex].revoked,
             TransactionRevokedErr(txIndex, msg.sender)
         );
-        require(!confirmed[txIndex][msg.sender], "Already confirmed");
+        require(!confirmed[txIndex][msg.sender], AlreadyConfirmed());
+
         confirmed[txIndex][msg.sender] = true;
         transactions[txIndex].confirmations++;
 
@@ -264,7 +281,7 @@ contract MultiSigEOAWallet {
             !transactions[txIndex].revoked,
             TransactionRevokedErr(txIndex, msg.sender)
         );
-        require(!revoked[txIndex][msg.sender], "Already revoked");
+        require(!revoked[txIndex][msg.sender], AlreadyRevoked());
 
         revoked[txIndex][msg.sender] = true;
         transactions[txIndex].revocations++;
@@ -281,15 +298,17 @@ contract MultiSigEOAWallet {
      */
     function execute(uint txIndex) internal {
         Tx storage transaction = transactions[txIndex];
-        require(!transaction.executed, "Already executed");
+        require(!transaction.executed, TransactionAlreadyExecuted());
         require(
             !transaction.revoked,
             TransactionRevokedErr(txIndex, msg.sender)
         );
 
         transaction.executed = true;
-        (bool ok, ) = transaction.to.call{value: transaction.value}(transaction.data);
-        require(ok, "Failed");
+        (bool ok, ) = transaction.to.call{value: transaction.value}(
+            transaction.data
+        );
+        require(ok, TransactionExecutionFailed());
     }
 
     /**
