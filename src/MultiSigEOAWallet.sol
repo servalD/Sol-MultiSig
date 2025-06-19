@@ -47,8 +47,11 @@ contract MultiSigEOAWallet {
     /// @notice Mapping to track which owners have revoked which transactions
     mapping(uint => mapping(address => bool)) public revoked;
 
-    /// @notice Array of all owners
-    Owner[] public owners;
+    /// @notice mapping of all owners
+    mapping(uint => Owner) public owners;
+
+    /// @notice Number of ownerz
+    uint public ownerCount;
 
     /// @notice Array of all transactions
     Tx[] public transactions;
@@ -79,6 +82,12 @@ contract MultiSigEOAWallet {
     /// @param txIndex The index of the revoked transaction
     /// @param revoker The address that revoked the transaction
     event TransactionRevoked(uint indexed txIndex, address indexed revoker);
+
+    /// @notice Emitted when Ether is deposited into the wallet
+    /// @param sender The address that sent the Ether
+    /// @param amount The amount of Ether sent
+    /// @param balance The new balance of the wallet after the deposit
+    event Deposit(address indexed sender, uint amount, uint balance);
 
     /// @dev Thrown when there are not enough owners
     error NotEnoughOwners();
@@ -147,7 +156,9 @@ contract MultiSigEOAWallet {
     }
 
     /// @notice Allows the contract to receive Ether
-    receive() external payable {}
+    receive() external payable {
+        emit Deposit(msg.sender, msg.value, address(this).balance);
+    }
 
     /**
      * @notice Submit a new owner for consideration
@@ -190,7 +201,7 @@ contract MultiSigEOAWallet {
         if (willBecomeUntrusted) {
             // Count current trusted owners
             uint trustedCount = 0;
-            for (uint j = 0; j < owners.length; j++) {
+            for (uint j = 0; j < ownerCount; j++) {
                 if (j == i) {
                     // Skip the owner being unsupported as they will become untrusted
                     continue;
@@ -286,13 +297,16 @@ contract MultiSigEOAWallet {
      * @param trustedBy Array of addresses that initially trust this owner
      */
     function addOwner(address newOwner, address[] memory trustedBy) internal {
-        // onlyOwner doit etre mis dans les fonctions qui l'utilisent
         require(newOwner != address(0), InvalidAddress());
         require(isEOA(newOwner), NotEOA());
         require(!isOwner(newOwner), AlreadyOwner());
-        owners.push(
-            Owner(newOwner, trustedBy, int(trustedBy.length) >= quorumSize)
+
+        owners[ownerCount] = Owner(
+            newOwner,
+            trustedBy,
+            int(trustedBy.length) >= quorumSize
         );
+        ownerCount++;
     }
 
     /**
@@ -310,7 +324,7 @@ contract MultiSigEOAWallet {
      * @return bool True if the address is an owner
      */
     function isOwner(address account) internal view returns (bool) {
-        for (uint i = 0; i < owners.length; i++) {
+        for (uint i = 0; i < ownerCount; i++) {
             if (owners[i].owner == account) {
                 return true;
             }
@@ -324,7 +338,7 @@ contract MultiSigEOAWallet {
      * @return int Trust value (trustedBy count - quorum size)
      */
     function trustValue(address account) internal view returns (int) {
-        for (uint i = 0; i < owners.length; i++) {
+        for (uint i = 0; i < ownerCount; i++) {
             if (owners[i].owner == account) {
                 return int(owners[i].trustedBy.length) - quorumSize;
             }
@@ -338,7 +352,7 @@ contract MultiSigEOAWallet {
      * @return int Trust value (trustedBy count - quorum size)
      */
     function trustValue(uint _ownerIndex) internal view returns (int) {
-        if (_ownerIndex < owners.length) {
+        if (_ownerIndex < ownerCount) {
             return int(owners[_ownerIndex].trustedBy.length) - quorumSize;
         }
         revert OwnerNotFound();
@@ -347,10 +361,10 @@ contract MultiSigEOAWallet {
     /**
      * @dev Get the index of an owner
      * @param account The owner address
-     * @return uint The index of the owner in the owners array
+     * @return uint The index of the owner in the owners mapping
      */
     function ownerIndex(address account) internal view returns (uint) {
-        for (uint i = 0; i < owners.length; i++) {
+        for (uint i = 0; i < ownerCount; i++) {
             if (owners[i].owner == account) {
                 return i;
             }
@@ -389,7 +403,11 @@ contract MultiSigEOAWallet {
      * @return Owner[] Array of all owners with their trust information
      */
     function getOwners() external view returns (Owner[] memory) {
-        return owners;
+        Owner[] memory allOwners = new Owner[](ownerCount);
+        for (uint i = 0; i < ownerCount; i++) {
+            allOwners[i] = owners[i];
+        }
+        return allOwners;
     }
 
     /**
@@ -399,7 +417,7 @@ contract MultiSigEOAWallet {
     function getTrustedOwners() external view returns (address[] memory) {
         // First count trusted owners
         uint trustedCount = 0;
-        for (uint i = 0; i < owners.length; i++) {
+        for (uint i = 0; i < ownerCount; i++) {
             if (trustValue(i) >= 0) {
                 trustedCount++;
             }
@@ -408,7 +426,7 @@ contract MultiSigEOAWallet {
         // Create array with correct size
         address[] memory trustedOwners = new address[](trustedCount);
         uint count = 0;
-        for (uint i = 0; i < owners.length; i++) {
+        for (uint i = 0; i < ownerCount; i++) {
             if (trustValue(i) >= 0) {
                 trustedOwners[count] = owners[i].owner;
                 count++;
